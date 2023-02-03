@@ -596,14 +596,19 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      */
     final Node<K,V> getNode(Object key) {
         Node<K,V>[] tab; Node<K,V> first, e; int n, hash; K k;
+        // 若表不空，且key的hash位置不为空才继续
         if ((tab = table) != null && (n = tab.length) > 0 &&
             (first = tab[(n - 1) & (hash = hash(key))]) != null) {
+            // 检查第一个元素是否匹配
             if (first.hash == hash && // always check first node
                 ((k = first.key) == key || (key != null && key.equals(k))))
                 return first;
+            // 第一个元素不匹配
             if ((e = first.next) != null) {
+                // 从树中寻找
                 if (first instanceof TreeNode)
                     return ((TreeNode<K,V>)first).getTreeNode(hash, key);
+                // 否则遍历链表寻找
                 do {
                     if (e.hash == hash &&
                         ((k = e.key) == key || (key != null && key.equals(k))))
@@ -738,44 +743,77 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         int newCap, newThr = 0;
         // 若之前有容量
         if (oldCap > 0) {
+            // 已经比最大的容量还大
             if (oldCap >= MAXIMUM_CAPACITY) {
+                // 当下次达到Integer.MAX_VALUE个元素后再扩容。
+                // 目的是之前扩容阈值=capacity*0.75，这样赋值最大值是将剩下的百分十25利用起来
                 threshold = Integer.MAX_VALUE;
                 return oldTab;
             }
+            // 未到最大容量而且小于最大容量，则新容量是旧容量的二倍，通过oldCap << 1实现，
+            // 且旧容量已经大于等于16，则下次扩容阈值是之前扩容阈值的二倍
+            // 若不满足，代表map初始化的时候指定了初始化容量。容量小于16
             else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
                      oldCap >= DEFAULT_INITIAL_CAPACITY)
                 newThr = oldThr << 1; // double threshold
         }
+        // 到这表示oldCap=0,但是oldThr>0；此时只有初始化时指定参数。oldThr=threshold=tablesizeFor
         else if (oldThr > 0) // initial capacity was placed in threshold
+            // 将阈值直接当作新容量
             newCap = oldThr;
         else {               // zero initial threshold signifies using defaults
+            // 初始化时是默认的构造
             newCap = DEFAULT_INITIAL_CAPACITY;
             newThr = (int)(DEFAULT_LOAD_FACTOR * DEFAULT_INITIAL_CAPACITY);
         }
         if (newThr == 0) {
+            // 如果是0，表示newThr在前面的代码中未被赋值，表示只满足else if (oldThr > 0)情况。
+            // 计算下次扩容阈值
             float ft = (float)newCap * loadFactor;
             newThr = (newCap < MAXIMUM_CAPACITY && ft < (float)MAXIMUM_CAPACITY ?
                       (int)ft : Integer.MAX_VALUE);
         }
         threshold = newThr;
-        @SuppressWarnings({"rawtypes","unchecked"})
+        // 下面进行从旧数组将数组迁移到新数组的操作
+        @SuppressWarnings({"rawtypes","unchecked"}) // 新容量数组
         Node<K,V>[] newTab = (Node<K,V>[])new Node[newCap];
         table = newTab;
+        // 如果之前的旧数组是空的话代表无元素可迁移，直接返回新数组引用即可。
         if (oldTab != null) {
+            // 循环旧数组中的元素
             for (int j = 0; j < oldCap; ++j) {
                 Node<K,V> e;
+                // 若元素不为空
                 if ((e = oldTab[j]) != null) {
+                    // 为了方便垃圾回收
                     oldTab[j] = null;
+                    // bin中仅有一个元素
                     if (e.next == null)
+                        // 映射到新数组中
                         newTab[e.hash & (newCap - 1)] = e;
+                    // 如果已经是树了，进行树的操作
                     else if (e instanceof TreeNode)
                         ((TreeNode<K,V>)e).split(this, newTab, j, oldCap);
+                    // 到这就是链表情况
                     else { // preserve order
+                        // 若一个bin中有一条链表，那么在遍历此链表上的元素的时候，由于容量不一样了，所以需要对
+                        // 元素进行重新的hash计算，则会出现有的元素hash后在新数组的位置与目前位置相同，有些元素
+                        // 在hash后在新数组的位置是 原来旧数组的位置加上原来旧容量的长度
+                        // 若下标不动的，则依次链接到loxxxx的链表上
+                        // 下标动的，依次链接到hixxxx的链表上
                         Node<K,V> loHead = null, loTail = null;
                         Node<K,V> hiHead = null, hiTail = null;
                         Node<K,V> next;
                         do {
                             next = e.next;
+                            // e.hash & oldCap 决定了链表上的元素的下标是不是动
+                            // 因为oldCap都是2的次方，则高位为1，其余位为0
+                            // 例如：
+                            // oldCap = 1 0000
+                            // e.hash = 1 1111   或
+                            // e.hash = 0 1111
+                            // 则通过与运算后，链表上的元素就被分为两个链表
+                            // 下面就是拆分链表的逻辑
                             if ((e.hash & oldCap) == 0) {
                                 if (loTail == null)
                                     loHead = e;
@@ -791,10 +829,12 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                                 hiTail = e;
                             }
                         } while ((e = next) != null);
+                        // 不为空，则有下标不动的元素链表，直接链接
                         if (loTail != null) {
                             loTail.next = null;
                             newTab[j] = loHead;
                         }
+                        // 不为空，则有下标移动的元素链表，连接到原来数组下标+旧容量的位置。
                         if (hiTail != null) {
                             hiTail.next = null;
                             newTab[j + oldCap] = hiHead;
